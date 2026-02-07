@@ -1,0 +1,64 @@
+name: Build Arch Linux ARM Docker Image
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-base-devel:
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Download Arch Linux ARM rootfs
+        run: |
+          curl -L -o /tmp/ArchLinuxARM-aarch64-latest.tar.gz \
+            http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
+
+      - name: Import bootstrap image
+        run: docker import /tmp/ArchLinuxARM-aarch64-latest.tar.gz alarm-builder
+
+      - name: Build rootfs
+        run: |
+          docker run --rm \
+            --privileged \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            alarm-builder \
+            /bin/bash -c '
+              set -euo pipefail
+
+              # Initialize pacman keyring
+              pacman-key --init
+              pacman-key --populate archlinuxarm
+
+              # Update system and install build dependencies
+              pacman -Syu --noconfirm
+              pacman -S --noconfirm --needed fakeroot fakechroot zstd
+
+              # Build the base-devel rootfs
+              scripts/make-rootfs.sh base-devel build output
+              
+              # Fix permissions for host access
+              chown -R $(stat -c "%u:%g" .) output
+            '
+
+      - name: Generate Dockerfile
+        env:
+          BUILD_VERSION: ${{ github.run_number }}
+          CI_COMMIT_SHA: ${{ github.sha }}
+        run: |
+          scripts/make-dockerfile.sh "base-devel.tar.zst" base-devel output "true" "Base-Devel"
+
+      - name: Build Docker image
+        run: docker build -f output/Dockerfile.base-devel -t lfdevs/archlinuxarm:base-devel output
+
+      - name: Push Docker image
+        run: docker push lfdevs/archlinuxarm:base-devel

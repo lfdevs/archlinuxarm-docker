@@ -12,8 +12,7 @@ mkdir -vp "$BUILDDIR/alpm-hooks/usr/share/libalpm/hooks"
 find /usr/share/libalpm/hooks -exec ln -sf /dev/null "$BUILDDIR/alpm-hooks"{} \;
 
 mkdir -vp "$BUILDDIR/var/lib/pacman/" "$OUTPUTDIR"
-[[ "$GROUP" == "multilib-devel" ]] && pacman_conf=multilib.conf || pacman_conf=extra.conf
-install -Dm644 "/usr/share/devtools/pacman.conf.d/$pacman_conf" "$BUILDDIR/etc/pacman.conf"
+install -Dm644 "pacman.conf.d/aarch64.conf" "$BUILDDIR/etc/pacman.conf"
 cat pacman-conf.d-noextract.conf >> "$BUILDDIR/etc/pacman.conf"
 
 sed 's/Include = /&rootfs/g' < "$BUILDDIR/etc/pacman.conf" > pacman.conf
@@ -41,15 +40,33 @@ $WRAPPER -- \
         --noscriptlet \
         --hookdir "$BUILDDIR/alpm-hooks/usr/share/libalpm/hooks/" base "$GROUP"
 
+# Install additional tools for CI/CD usage
+$WRAPPER -- \
+    pacman -S -r "$BUILDDIR" \
+        --disable-sandbox-filesystem \
+        --noconfirm --dbpath "$BUILDDIR/var/lib/pacman" \
+        --config pacman.conf \
+        --noscriptlet \
+        --hookdir "$BUILDDIR/alpm-hooks/usr/share/libalpm/hooks/" \
+        git curl wget openssh ca-certificates
+
 $WRAPPER -- chroot "$BUILDDIR" update-ca-trust
 $WRAPPER -- chroot "$BUILDDIR" pacman-key --init
 $WRAPPER -- chroot "$BUILDDIR" pacman-key --populate
+
+# Configure sudo for wheel group (useful for CI environments)
+mkdir -p "$BUILDDIR/etc/sudoers.d"
+echo '%wheel ALL=(ALL:ALL) NOPASSWD: ALL' > "$BUILDDIR/etc/sudoers.d/wheel-nopasswd"
+chmod 440 "$BUILDDIR/etc/sudoers.d/wheel-nopasswd"
 
 # add system users
 $WRAPPER -- chroot "$BUILDDIR" /usr/bin/systemd-sysusers --root "/"
 
 # remove passwordless login for root (see CVE-2019-5021 for reference)
 sed -i -e 's/^root::/root:!:/' "$BUILDDIR/etc/shadow"
+
+# Clean pacman cache to reduce image size
+rm -rf "$BUILDDIR/var/cache/pacman/pkg/"*
 
 # fakeroot to map the gid/uid of the builder process to root
 # fixes #22
