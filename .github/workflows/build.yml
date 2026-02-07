@@ -1,6 +1,8 @@
 name: Build Arch Linux ARM Docker Image
 
 on:
+  schedule:
+    - cron: '0 0 8 * *'
   workflow_dispatch:
 
 jobs:
