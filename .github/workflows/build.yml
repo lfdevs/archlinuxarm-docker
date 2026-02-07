@@ -40,7 +40,7 @@ jobs:
               pacman-key --populate archlinuxarm
 
               # Update system and install build dependencies
-              pacman -Syu --noconfirm
+              pacman -Syyu --noconfirm
               pacman -S --noconfirm --needed fakeroot fakechroot zstd
 
               # Build the base-devel rootfs

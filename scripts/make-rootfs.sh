@@ -48,11 +48,16 @@ $WRAPPER -- \
         --config pacman.conf \
         --noscriptlet \
         --hookdir "$BUILDDIR/alpm-hooks/usr/share/libalpm/hooks/" \
-        git curl wget openssh ca-certificates
+        git curl wget openssh ca-certificates archlinuxarm-keyring
 
 $WRAPPER -- chroot "$BUILDDIR" update-ca-trust
+
+# Initialize pacman keyring properly
 $WRAPPER -- chroot "$BUILDDIR" pacman-key --init
-$WRAPPER -- chroot "$BUILDDIR" pacman-key --populate
+$WRAPPER -- chroot "$BUILDDIR" pacman-key --populate archlinuxarm
+
+# Ensure the keyring database is properly trusted
+$WRAPPER -- chroot "$BUILDDIR" pacman-key --updatedb
 
 # Configure sudo for wheel group (useful for CI environments)
 mkdir -p "$BUILDDIR/etc/sudoers.d"
