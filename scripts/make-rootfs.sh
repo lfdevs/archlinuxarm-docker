@@ -10,18 +10,21 @@ declare -r WRAPPER="fakechroot -- fakeroot"
 declare -r GROUP="$1"
 declare -r BUILDDIR="$2"
 declare -r OUTPUTDIR="$3"
-declare -r ARCHIVE_SNAPSHOT="$4"
-declare -rx SOURCE_DATE_EPOCH="$5"
+declare -r DRZEE_KEY_FINGERPRINT="9B2C213B21883BB65CE2FB900CF25682E6BA0751"
 
-# For eventual debugging purposes
-echo -e "ARCHIVE_SNAPSHOT: ${ARCHIVE_SNAPSHOT}\nSOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH}"
+case "$GROUP" in
+    base | base-devel) ;;
+    *)
+        echo "Unsupported AArch64 image group: $GROUP" >&2
+        exit 2
+        ;;
+esac
 
 mkdir -vp "$BUILDDIR/alpm-hooks/usr/share/libalpm/hooks"
 find /usr/share/libalpm/hooks -exec ln -sf /dev/null "$BUILDDIR/alpm-hooks"{} \;
 
 mkdir -vp "$BUILDDIR/var/lib/pacman/" "$OUTPUTDIR"
-[[ "$GROUP" == "multilib-devel" ]] && pacman_conf=multilib.conf || pacman_conf=extra.conf
-install -Dm644 "/usr/share/devtools/pacman.conf.d/$pacman_conf" "$BUILDDIR/etc/pacman.conf"
+install -Dm644 "pacman.conf.d/aarch64.conf" "$BUILDDIR/etc/pacman.conf"
 cat pacman-conf.d-noextract.conf >> "$BUILDDIR/etc/pacman.conf"
 
 sed 's/Include = /&rootfs/g' < "$BUILDDIR/etc/pacman.conf" > pacman.conf
@@ -41,48 +44,39 @@ fi
 cp --recursive --preserve=timestamps rootfs/* "$BUILDDIR/"
 ln -fs /usr/lib/os-release "$BUILDDIR/etc/os-release"
 
-# Use archived repo snapshot from archive.archlinux.org for reproducible builds
-if [[ "$GROUP" == "repro" ]]; then
-    sed -i "1iServer = https://archive.archlinux.org/repos/$ARCHIVE_SNAPSHOT/\\\$repo/os/\\\$arch" rootfs/etc/pacman.d/mirrorlist
-    repro_pacman_options=(
-        --logfile /dev/null
-    )
+# Seed a target keyring before the first transaction so pacman can verify
+# packages from drzee.net while building the rootfs.
+install -d -m 700 "$BUILDDIR/etc/pacman.d/gnupg"
+$WRAPPER -- pacman-key --gpgdir "$BUILDDIR/etc/pacman.d/gnupg" --init
+$WRAPPER -- pacman-key --gpgdir "$BUILDDIR/etc/pacman.d/gnupg" --add keys/drzee.gpg
+$WRAPPER -- pacman-key --gpgdir "$BUILDDIR/etc/pacman.d/gnupg" --lsign-key "$DRZEE_KEY_FINGERPRINT"
+
+packages=(base)
+if [[ "$GROUP" == "base-devel" ]]; then
+    packages+=(base-devel)
 fi
 
 $WRAPPER -- \
     pacman -Sy -r "$BUILDDIR" \
-        --disable-sandbox-filesystem \
+        --disable-sandbox \
+        --disable-download-timeout \
         --noconfirm --dbpath "$BUILDDIR/var/lib/pacman" \
         --config pacman.conf \
         --noscriptlet \
-        "${repro_pacman_options[@]}" \
-        --hookdir "$BUILDDIR/alpm-hooks/usr/share/libalpm/hooks/" base ${GROUP:+${GROUP/repro/}} # repro is not a package
+        --hookdir "$BUILDDIR/alpm-hooks/usr/share/libalpm/hooks/" \
+        "${packages[@]}"
 
 $WRAPPER -- chroot "$BUILDDIR" update-ca-trust
+install -Dm644 keys/drzee.gpg "$BUILDDIR/usr/share/pacman/keyrings/drzee.gpg"
+install -Dm644 keys/drzee-trusted "$BUILDDIR/usr/share/pacman/keyrings/drzee-trusted"
 $WRAPPER -- chroot "$BUILDDIR" pacman-key --init
-$WRAPPER -- chroot "$BUILDDIR" pacman-key --populate
-
-if [[ "$GROUP" == "repro" ]]; then
-    # Clear pacman keyring for reproducible builds
-    rm -rf "$BUILDDIR"/etc/pacman.d/gnupg/*
-    # Normalize mtimes
-    find "$BUILDDIR" -exec touch --no-dereference --date="@$SOURCE_DATE_EPOCH" {} +
-fi
+$WRAPPER -- chroot "$BUILDDIR" pacman-key --populate archlinux drzee
 
 # add system users
 $WRAPPER -- chroot "$BUILDDIR" /usr/bin/systemd-sysusers --root "/"
 
 # remove passwordless login for root (see CVE-2019-5021 for reference)
 sed -i -e 's/^root::/root:!:/' "$BUILDDIR/etc/shadow"
-
-if [[ "$GROUP" == "repro" ]]; then
-    repro_tar_options=(
-        --mtime="@$SOURCE_DATE_EPOCH"
-        --clamp-mtime
-        --sort=name
-        --pax-option=delete=atime,delete=ctime
-    )
-fi
 
 # fakeroot to map the gid/uid of the builder process to root
 # fixes #22
@@ -91,7 +85,6 @@ fakeroot -- \
         --numeric-owner \
         --xattrs \
         --acls \
-        "${repro_tar_options[@]}" \
         --exclude-from=exclude \
         -C "$BUILDDIR" \
         -c . \

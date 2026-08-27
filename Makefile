@@ -2,9 +2,9 @@
 export TZ := UTC
 
 OCITOOL=podman # or docker
+IMAGE_NAME ?= lfdevs/archlinux-ports
 BUILDDIR=$(shell pwd)/build
 OUTPUTDIR=$(shell pwd)/output
-ARCHIVE_SNAPSHOT=$(shell date -u -d "-1 day" +"%Y/%m/%d")
 SOURCE_DATE_EPOCH=$(shell date -u -d "00:00:00" +"%s")
 
 .PHONY: clean
@@ -13,14 +13,14 @@ clean:
 
 .PRECIOUS: $(OUTPUTDIR)/%.tar.zst
 $(OUTPUTDIR)/%.tar.zst:
-	scripts/make-rootfs.sh $(*) $(BUILDDIR) $(OUTPUTDIR) $(ARCHIVE_SNAPSHOT) $(SOURCE_DATE_EPOCH)
+	scripts/make-rootfs.sh $(*) $(BUILDDIR) $(OUTPUTDIR)
 
 .PRECIOUS: $(OUTPUTDIR)/Dockerfile.%
 $(OUTPUTDIR)/Dockerfile.%: $(OUTPUTDIR)/%.tar.zst
-	scripts/make-dockerfile.sh "$(*).tar.zst" $(*) $(OUTPUTDIR) "true" "Dev" $(SOURCE_DATE_EPOCH)
+	scripts/make-dockerfile.sh "$(*).tar.zst" $(*) $(OUTPUTDIR) "true" "$(*)" $(SOURCE_DATE_EPOCH)
 
 # The following is for local builds only, it is not used by the CI/CD pipeline
 
-all: image-base image-base-devel image-multilib-devel image-repro
+all: image-base image-base-devel
 image-%: $(OUTPUTDIR)/Dockerfile.%
-	${OCITOOL} build -f $(OUTPUTDIR)/Dockerfile.$(*) -t archlinux/archlinux:$(*) $(OUTPUTDIR)
+	${OCITOOL} build -f $(OUTPUTDIR)/Dockerfile.$(*) -t $(IMAGE_NAME):$(*) $(OUTPUTDIR)

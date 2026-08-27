@@ -1,15 +1,5 @@
-# Docker image when built on the official Docker infrastructure.
-# They require us to verify the source integrity in some way while making sure that this is a
-# reproducible build.
-# See https://github.com/docker-library/official-images#image-build
-# In order to achieve this, we externally host the rootfs archives and their checksums and then
-# just download and verify it in the first stage of this Dockerfile.
-# The second stage is for actually configuring the system a little bit.
-# Some templating is done in order to allow us to easily build different configurations and to
-# allow us to automate the release process.
-
-# Note: Only official DockerHub images are allowed, see https://gitlab.archlinux.org/archlinux/archlinux-docker/-/commit/daa67d18579024947d69a45e6d028c5adb1c8c23
-# While we could use archlinux:base it could also break our build process, so we avoid dog fooding here
+# The first stage verifies and extracts the generated rootfs. The final image is
+# assembled from scratch so it contains only the requested Arch Linux packages.
 FROM alpine:3.23 AS verify
 COPY TEMPLATE_ROOTFS_FILE /
 
@@ -24,11 +14,11 @@ RUN TEMPLATE_ROOTFS_DOWNLOAD && \
 FROM scratch AS root
 
 LABEL org.opencontainers.image.title="TEMPLATE_TITLE"
-LABEL org.opencontainers.image.description="Official containerd image of Arch Linux, a simple, lightweight Linux distribution aimed for flexibility."
-LABEL org.opencontainers.image.authors="Santiago Torres-Arias <santiago@archlinux.org> (@SantiagoTorres), Christian Rebischke <Chris.Rebischke@archlinux.org> (@shibumi), Justin Kromlinger <hashworks@archlinux.org> (@hashworks)"
-LABEL org.opencontainers.image.url="https://gitlab.archlinux.org/archlinux/archlinux-docker/-/blob/master/README.md"
-LABEL org.opencontainers.image.documentation="https://wiki.archlinux.org/title/Docker#Arch_Linux"
-LABEL org.opencontainers.image.source="https://gitlab.archlinux.org/archlinux/archlinux-docker"
+LABEL org.opencontainers.image.description="Unofficial Arch Linux OCI image for AArch64 ARMv8.2-A systems, built from drzee.net packages."
+LABEL org.opencontainers.image.authors="lfdevs <lfdevs@lfdevs.com> (@lfdevs)"
+LABEL org.opencontainers.image.url="https://github.com/lfdevs/archlinuxarm-docker"
+LABEL org.opencontainers.image.documentation="https://github.com/lfdevs/archlinuxarm-docker/blob/drzee/.github/README.md"
+LABEL org.opencontainers.image.source="https://github.com/lfdevs/archlinuxarm-docker"
 LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"
 LABEL org.opencontainers.image.version="TEMPLATE_VERSION_ID"
 LABEL org.opencontainers.image.revision="TEMPLATE_REVISION"
@@ -37,7 +27,9 @@ LABEL org.opencontainers.image.created="TEMPLATE_CREATED"
 COPY --from=verify /rootfs/ /
 
 RUN ldconfig && \
-    sed -i '/BUILD_ID/a VERSION_ID=TEMPLATE_VERSION_ID' /etc/os-release
+    sed -i '/BUILD_ID/a VERSION_ID=TEMPLATE_VERSION_ID' /etc/os-release && \
+    pacman-key --init && \
+    pacman-key --populate archlinux drzee
 
 ENV LANG=C.UTF-8
 CMD ["/usr/bin/bash"]
