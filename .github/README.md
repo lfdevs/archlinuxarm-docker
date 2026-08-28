@@ -3,6 +3,9 @@ Forked From [Arch Linux / archlinux-docker · GitLab](https://gitlab.archlinux.o
 
 ---
 
+> [!TIP]
+> [Arch Linux Ports AArch64](https://ports.archlinux.page/aarch64/) OCI Images are now available, please switch to the `ports` branch of this repository to learn more: <https://github.com/lfdevs/archlinuxarm-docker/tree/ports>
+
 This repository provides Docker container images in Docker Hub: https://hub.docker.com/r/lfdevs/archlinuxarm
 
 ```bash
